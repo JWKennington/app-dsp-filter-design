@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dsp-filter-design"
+version = "0.1.0"
+description = "An interactive Digital Signal Processing explorer for filter design and analysis."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+  {name = "Jim Kennington", email = "james.kennington@psu.edu"},
+]
+dependencies = [
+  "dash>=2.14.0",
+  "dash-bootstrap-components>=1.5.0",
+  "numpy>=1.24.0",
+  "scipy>=1.10.0",
+  "pandas>=2.0.0",
+  "gunicorn>=21.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/JWKennington/app-dsp-filter-design"
+
+[project.scripts]
+dsp-fd = "dsp_filter_design.app:main"
+
+# Hatchling configuration (just for file inclusion)
+[tool.hatch.build.targets.wheel]
+packages = ["src/dsp_filter_design"]
