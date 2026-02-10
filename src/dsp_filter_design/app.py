@@ -7,7 +7,6 @@ import numpy as np
 
 # --- Constants ---
 LIGO_PURPLE = "#593196"
-# "editable": True is CRITICAL for dragging shapes
 CONFIG_PLOT = {"displayModeBar": False, "responsive": True, "editable": True}
 
 # --- App Initialization ---
@@ -74,20 +73,41 @@ control_panel = dbc.Card([
         ], className="mb-3"),
 
         html.Hr(),
+
+        # New ROC Toggle
+        html.Label("Highlight Region (Stability)"),
+        dbc.RadioItems(
+            id="roc-radio",
+            options=[
+                {"label": "Causal", "value": "causal"},
+                {"label": "Anti-Causal", "value": "anticausal"},
+                {"label": "Off", "value": "off"}
+            ],
+            value="causal",
+            inline=True,
+            className="mb-3"
+        ),
+
+        # Updated Buttons
         dbc.ButtonGroup([
-            dbc.Button("Add Pole", id="btn-add-p", outline=True, color="danger",
+            dbc.Button("Add P", id="btn-add-p", outline=True, color="danger",
                        size="sm"),
-            dbc.Button("Add Zero", id="btn-add-z", outline=True, color="primary",
+            dbc.Button("Rem P", id="btn-rem-p", outline=True, color="danger",
                        size="sm"),
-            dbc.Button("Reset", id="btn-reset", outline=True, color="secondary",
+            dbc.Button("Add Z", id="btn-add-z", outline=True, color="primary",
                        size="sm"),
-        ], className="w-100")
+            dbc.Button("Rem Z", id="btn-rem-z", outline=True, color="primary",
+                       size="sm"),
+        ], className="w-100 mb-2"),
+
+        dbc.Button("Reset All", id="btn-reset", outline=True, color="secondary",
+                   size="sm", className="w-100"),
+
     ])
 ], className="h-100 shadow-sm")
 
 plots_col = html.Div([
     dbc.Row([
-        # Only pz-plot needs to be editable for dragging
         dbc.Col(dcc.Graph(id="pz-plot", config=CONFIG_PLOT, style={"height": "400px"}),
                 md=6),
         dbc.Col(dcc.Graph(id="bode-plot", config={"displayModeBar": False},
@@ -125,11 +145,13 @@ def toggle_cutoff2(ftype):
     Input("order-in", "value"), Input("domain-radio", "value"),
     Input("cut1-in", "value"), Input("cut2-in", "value"),
     Input("btn-add-p", "n_clicks"), Input("btn-add-z", "n_clicks"),
+    Input("btn-rem-p", "n_clicks"), Input("btn-rem-z", "n_clicks"),  # New Inputs
     Input("btn-reset", "n_clicks"),
     Input("pz-plot", "relayoutData"),
     State("filter-state", "data")
 )
-def update_filter_state(fam, ftype, order, domain, c1, c2, btn_p, btn_z, btn_rst,
+def update_filter_state(fam, ftype, order, domain, c1, c2,
+                        add_p, add_z, rem_p, rem_z, btn_rst,
                         relayout, current_data):
     ctx = callback_context
     trigger = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else "init"
@@ -154,30 +176,27 @@ def update_filter_state(fam, ftype, order, domain, c1, c2, btn_p, btn_z, btn_rst
     if trigger == "btn-add-z":
         zeros.append(complex(0, 0.5) if domain == "analog" else complex(0, 0.5))
 
-    # 3. Dragging on Plot (Relayout)
-    # The crucial part: Logic to update coordinates based on shape drag
-    if trigger == "pz-plot" and relayout:
-        # relayoutData contains keys like 'shapes[2].x0'
-        # shapes[0] is Unit Circle (if digital), then Zeros, then Poles
+    # 3. Remove Pole/Zero (Manual) - Pops the last one
+    if trigger == "btn-rem-p" and poles:
+        poles.pop()
+    if trigger == "btn-rem-z" and zeros:
+        zeros.pop()
 
-        # Determine index offset
+    # 4. Dragging on Plot (Relayout)
+    if trigger == "pz-plot" and relayout:
         offset = 1 if domain == "digital" else 0
         n_zeros = len(zeros)
 
         for key, val in relayout.items():
             if "shapes[" in key:
-                # Extract shape index
                 try:
                     shape_idx = int(key.split("[")[1].split("]")[0])
-                    attr = key.split(".")[-1]  # x0, x1, y0, y1
-
-                    # Calculate Logic Index
+                    attr = key.split(".")[-1]
                     logic_idx = shape_idx - offset
+                    radius = 0.05
 
-                    # Is it a Zero? (0 to n_zeros - 1)
                     if 0 <= logic_idx < n_zeros:
                         curr_z = zeros[logic_idx]
-                        radius = 0.05
                         if attr == "x0":
                             zeros[logic_idx] = complex(val + radius, curr_z.imag)
                         elif attr == "x1":
@@ -187,12 +206,10 @@ def update_filter_state(fam, ftype, order, domain, c1, c2, btn_p, btn_z, btn_rst
                         elif attr == "y1":
                             zeros[logic_idx] = complex(curr_z.real, val - radius)
 
-                    # Is it a Pole? (n_zeros to n_zeros + n_poles - 1)
                     elif logic_idx >= n_zeros:
                         p_idx = logic_idx - n_zeros
                         if p_idx < len(poles):
                             curr_p = poles[p_idx]
-                            radius = 0.05
                             if attr == "x0":
                                 poles[p_idx] = complex(val + radius, curr_p.imag)
                             elif attr == "x1":
@@ -215,9 +232,10 @@ def update_filter_state(fam, ftype, order, domain, c1, c2, btn_p, btn_z, btn_rst
 @app.callback(
     Output("pz-plot", "figure"), Output("bode-plot", "figure"),
     Output("impulse-plot", "figure"),
-    Input("filter-state", "data"), Input("domain-radio", "value")
+    Input("filter-state", "data"), Input("domain-radio", "value"),
+    Input("roc-radio", "value")
 )
-def update_plots(data, domain):
+def update_plots(data, domain, roc_mode):
     poles = dsp.to_complex_array(data["poles"])
     zeros = dsp.to_complex_array(data["zeros"])
     gain = data["gain"]
@@ -241,17 +259,59 @@ def update_plots(data, domain):
         }
     }
 
-    # -- P/Z Map (Using Shapes for Draggability) --
+    # -- P/Z Map --
     shapes = []
 
-    # 1. Unit Circle (if Digital) - locked
+    # 1. Background Regions (Stability/Causality)
+    # Layer must be 'below' to not obscure poles/zeros
+    if roc_mode != "off":
+        if domain == "analog":
+            if roc_mode == "causal":
+                # Green Left Half Plane
+                shapes.append({
+                    "type": "rect", "x0": -100, "x1": 0, "y0": -100, "y1": 100,
+                    "fillcolor": "rgba(0, 255, 0, 0.1)", "line": {"width": 0},
+                    "layer": "below", "editable": False
+                })
+            else:
+                # Red Right Half Plane
+                shapes.append({
+                    "type": "rect", "x0": 0, "x1": 100, "y0": -100, "y1": 100,
+                    "fillcolor": "rgba(255, 0, 0, 0.1)", "line": {"width": 0},
+                    "layer": "below", "editable": False
+                })
+        else:  # Digital
+            if roc_mode == "causal":
+                # Green Inside Unit Circle
+                shapes.append({
+                    "type": "circle", "x0": -1, "x1": 1, "y0": -1, "y1": 1,
+                    "fillcolor": "rgba(0, 255, 0, 0.1)", "line": {"width": 0},
+                    "layer": "below", "editable": False
+                })
+            else:
+                # Red Outside Unit Circle (Approximated by huge annulus using SVG path)
+                # Outer box 20x20, Inner hole radius 1
+                path_str = "M -10 -10 L 10 -10 L 10 10 L -10 10 Z M 1 0 A 1 1 0 0 0 -1 0 A 1 1 0 0 0 1 0 Z"
+                shapes.append({
+                    "type": "path", "path": path_str,
+                    "fillcolor": "rgba(255, 0, 0, 0.1)", "line": {"width": 0},
+                    "layer": "below", "editable": False
+                })
+
+    # 2. Reference Lines (Unit Circle or Axis)
     if domain == "digital":
         shapes.append({
             "type": "circle", "x0": -1, "x1": 1, "y0": -1, "y1": 1,
             "line": {"dash": "dot", "color": "gray"}, "editable": False
         })
+    else:
+        # Highlight imaginary axis for Analog
+        shapes.append({
+            "type": "line", "x0": 0, "x1": 0, "y0": -100, "y1": 100,
+            "line": {"color": "gray", "width": 1}, "editable": False
+        })
 
-    # 2. Zeros (Blue Circles)
+    # 3. Zeros (Blue Circles)
     radius = 0.05
     for z in zeros:
         shapes.append({
@@ -262,7 +322,7 @@ def update_plots(data, domain):
             "fillcolor": "rgba(0, 0, 255, 0.1)"
         })
 
-    # 3. Poles (Red Circles)
+    # 4. Poles (Red Circles)
     for p in poles:
         shapes.append({
             "type": "circle",
@@ -274,24 +334,22 @@ def update_plots(data, domain):
 
     pz_fig = {
         "data": [
-            # Dummy trace to set axis range, otherwise shapes might not define range
-            # well
+            # Dummy trace to enforce axis range
             {"x": [-2, 2], "y": [-2, 2], "mode": "markers", "opacity": 0}
         ],
         "layout": {
-            "title": "Pole-Zero Map (Drag Shapes)",
-            "xaxis": {"range": [-2, 2], "title": "Real"},
+            "title": "Pole-Zero Map",
+            "xaxis": {"range": [-2, 2], "title": "Real", "zeroline": False},
             "yaxis": {"range": [-2, 2], "scaleanchor": "x", "scaleratio": 1,
-                      "title": "Imaginary"},
+                      "title": "Imaginary", "zeroline": False},
             "shapes": shapes,
             "margin": {"l": 40, "r": 40, "t": 40, "b": 40},
-            "dragmode": "select"  # Helps prevent zooming when trying to drag
+            "dragmode": "select"
         }
     }
 
     # -- Impulse --
     if y is None:
-        # ERROR STATE: Display Warning
         imp_fig = {
             "data": [],
             "layout": {
@@ -300,8 +358,7 @@ def update_plots(data, domain):
                 "xaxis": {"visible": False},
                 "yaxis": {"visible": False},
                 "annotations": [{
-                    "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot "
-                            "compute impulse.",
+                    "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot compute impulse.",
                     "xref": "paper", "yref": "paper",
                     "showarrow": False,
                     "font": {"size": 14, "color": "red"}
