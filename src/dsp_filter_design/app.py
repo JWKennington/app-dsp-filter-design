@@ -88,7 +88,7 @@ control_panel = dbc.Card([
             className="mb-3"
         ),
 
-        # Buttons
+        # Buttons (Renamed to be fully descriptive)
         dbc.Row([
             dbc.Col(dbc.Button("Add Pole", id="btn-add-p", outline=True, color="danger",
                                size="sm", className="w-100"), width=6),
@@ -319,7 +319,9 @@ def update_plots(data, domain, roc_mode):
             else:
                 # Red Outside Unit Circle (Donut)
                 # Outer Box (CCW) + Inner Circle (CW) = Hole
-                path_str = "M -100 -100 L 100 -100 L 100 100 L -100 100 Z M 1 0 A 1 1 0 0 1 -1 0 A 1 1 0 0 1 1 0 Z"
+                # M 1 0 A 1 1 0 0 0 ... The '0' sweep flag makes it Clockwise (CW)
+                path_str = ("M -100 -100 L 100 -100 L 100 100 L -100 100 Z M 1 0 A 1 1 "
+                            "0 0 0 -1 0 A 1 1 0 0 0 1 0 Z")
                 shapes.append({
                     "type": "path", "path": path_str,
                     "fillcolor": "rgba(255, 0, 0, 0.1)", "line": {"width": 0},
@@ -381,7 +383,8 @@ def update_plots(data, domain, roc_mode):
                 "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
                 "xaxis": {"visible": False}, "yaxis": {"visible": False},
                 "annotations": [{
-                    "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot compute impulse.",
+                    "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot "
+                            "compute impulse.",
                     "xref": "paper", "yref": "paper", "showarrow": False,
                     "font": {"size": 14, "color": "red"}
                 }]
