@@ -3,8 +3,7 @@ from scipy import signal
 
 
 def sanitize_json(obj):
-    """Recursively convert numpy types to standard python types for JSON
-    serialization."""
+    """Recursively convert numpy types to standard python types for JSON serialization."""
     if isinstance(obj, dict):
         return {k: sanitize_json(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -35,8 +34,7 @@ def design_filter(family, ftype, order, domain, c1, c2):
     else:
         Wn = c1
 
-    # Safety clamps (Using np.clip/maximum handles both scalar and list inputs
-    # automatically)
+    # Safety clamps (Using np.clip/maximum handles both scalar and list inputs automatically)
     if not analog:
         # Digital freq must be 0 < Wn < 1 (Nyquist)
         Wn = np.clip(Wn, 1e-6, 0.999)
@@ -104,12 +102,19 @@ def compute_responses(zeros, poles, gain, domain):
         # Use simple linspace for T to avoid issues with signal.impulse auto-ranging
         T_vals = np.linspace(0, t_max, 500)
         t, y = signal.impulse(sys, T=T_vals)
+
+        # FIX: Ensure output is Real (removes 1e-12j noise and handles complex filters)
+        y = np.real(y)
+
     else:
         dim = 50
         u = np.zeros(dim);
         u[0] = 1
         b, a = signal.zpk2tf(zeros, poles, gain)
         y = signal.lfilter(b, a, u)
+
+        # FIX: Ensure output is Real
+        y = np.real(y)
         t = np.arange(dim)
 
     return w, mag_db, phase_deg, t, y
