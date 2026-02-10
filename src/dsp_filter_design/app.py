@@ -7,7 +7,8 @@ import numpy as np
 
 # --- Constants ---
 # --- Constants ---
-LIGO_PURPLE = "#593196"
+LSC_BLUE = "#003262"  # Professional LSC Blue
+
 CONFIG_PLOT = {
     "displayModeBar": False,
     "editable": True,  # Must be True for dragging shapes
@@ -49,7 +50,8 @@ header = dbc.Navbar(
             ),
         ]
     ),
-    color=LIGO_PURPLE,
+    color=LSC_BLUE,
+
     dark=True,
     className="mb-4",
 )
@@ -354,7 +356,8 @@ def update_response_plots(data, domain):
     # -- Bode --
     bode_fig = {
         "data": [
-            {"x": w, "y": mag, "name": "Mag", "line": {"color": LIGO_PURPLE}},
+            {"x": w, "y": mag, "name": "Mag", "line": {"color": LSC_BLUE}},
+
             {"x": w, "y": phase, "name": "Phase", "yaxis": "y2",
              "line": {"color": "orange", "dash": "dot"}}
         ],
