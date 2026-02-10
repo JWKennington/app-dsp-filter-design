@@ -88,7 +88,7 @@ control_panel = dbc.Card([
             className="mb-3"
         ),
 
-        # Buttons (Renamed to be fully descriptive)
+        # Buttons
         dbc.Row([
             dbc.Col(dbc.Button("Add Pole", id="btn-add-p", outline=True, color="danger",
                                size="sm", className="w-100"), width=6),
@@ -148,14 +148,12 @@ def update_defaults(domain, ftype, current_c1):
     ctx = callback_context
     trigger = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else "init"
 
-    # Enable/Disable 2nd cutoff
     c2_disabled = ftype not in ["bandpass", "bandstop"]
 
-    # Smart Default for Cutoff 1
     new_c1 = current_c1
     if trigger == "domain-radio":
         if domain == "digital":
-            # Switch to normalized freq (0.25 is a nice visual default)
+            # Switch to normalized freq
             new_c1 = 0.25
         else:
             # Switch to rad/s
@@ -190,7 +188,6 @@ def update_filter_state(fam, ftype, order, c1, c2,
     # Design Triggers
     design_triggers = ["family-dd", "type-dd", "order-in", "cut1-in", "cut2-in",
                        "btn-reset"]
-
     if trigger in design_triggers or trigger == "init":
         if fam != "Custom":
             z, p, k = dsp.design_filter(fam, ftype, order, domain, c1, c2)
@@ -214,7 +211,6 @@ def update_filter_state(fam, ftype, order, c1, c2,
     if trigger == "pz-plot" and relayout:
         offset = 1 if domain == "digital" else 0
         n_zeros = len(zeros)
-
         for key, val in relayout.items():
             if "shapes[" in key:
                 try:
@@ -233,7 +229,6 @@ def update_filter_state(fam, ftype, order, c1, c2,
                             zeros[logic_idx] = complex(curr_z.real, val + radius)
                         elif attr == "y1":
                             zeros[logic_idx] = complex(curr_z.real, val - radius)
-
                     elif logic_idx >= n_zeros:
                         p_idx = logic_idx - n_zeros
                         if p_idx < len(poles):
@@ -246,7 +241,6 @@ def update_filter_state(fam, ftype, order, c1, c2,
                                 poles[p_idx] = complex(curr_p.real, val + radius)
                             elif attr == "y1":
                                 poles[p_idx] = complex(curr_p.real, val - radius)
-
                 except Exception as e:
                     print(f"Drag parse error: {e}")
 
@@ -317,11 +311,38 @@ def update_plots(data, domain, roc_mode):
                     "layer": "below", "editable": False
                 })
             else:
-                # Red Outside Unit Circle (Donut)
-                # Outer Box (CCW) + Inner Circle (CW) = Hole
-                # M 1 0 A 1 1 0 0 0 ... The '0' sweep flag makes it Clockwise (CW)
-                path_str = ("M -100 -100 L 100 -100 L 100 100 L -100 100 Z M 1 0 A 1 1 "
-                            "0 0 0 -1 0 A 1 1 0 0 0 1 0 Z")
+                # Red Outside Unit Circle (Donut Hole)
+                # Method: Polygon Approximation + Bridge Path
+                # SVG Arcs can be flaky with winding rules in some renderers.
+                # A robust solution is to approximate the circle with a polygon (e.g. 64 sides)
+                # and use the same bridge topology.
+                #
+                # Path: Outer Box (CCW) -> Bridge In -> Inner Circle (CW Polygon) -> Bridge Out -> Close
+
+                # 1. Outer Box (CCW)
+                # (-20,-20) -> (20,-20) -> (20,20) -> (-20,20) -> (-20,-20)
+                outer = "M -20 -20 L 20 -20 L 20 20 L -20 20 L -20 -20"
+
+                # 2. Bridge In: From (-20, -20) to Top of Circle (0, 1)
+                bridge_in = "L 0 1"
+
+                # 3. Inner Circle Polygon (CW)
+                # Start at (0, 1), go CW to (0, 1)
+                # 64 segments = sufficient resolution for visual circle
+                angles = np.linspace(np.pi/2, -3*np.pi/2, 65) # 65 points for 64 segments (start==end)
+                circle_pts = []
+                for theta in angles[1:]: # Skip first point (0,1) as bridge_in lands there
+                    x = np.cos(theta)
+                    y = np.sin(theta)
+                    circle_pts.append(f"L {x:.5f} {y:.5f}")
+                
+                inner_poly = " ".join(circle_pts)
+
+                # 4. Bridge Out: From Top of Circle (0, 1) back to start (-20, -20)
+                bridge_out = "L -20 -20"
+
+                path_str = f"{outer} {bridge_in} {inner_poly} {bridge_out} Z"
+
                 shapes.append({
                     "type": "path", "path": path_str,
                     "fillcolor": "rgba(255, 0, 0, 0.1)", "line": {"width": 0},
