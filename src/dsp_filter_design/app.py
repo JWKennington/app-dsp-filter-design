@@ -390,8 +390,12 @@ def update_response_plots(data, domain):
         }
     else:
         # Determine range for better visualization
+        t_min = np.min(t) if len(t) > 0 else 0.0
         t_max = np.max(t) if len(t) > 0 else 1.0
-        x_range = [-0.05 * t_max, t_max * 1.05]
+        
+        # Add padding
+        pad = (t_max - t_min) * 0.05
+        x_range = [t_min - pad, t_max + pad]
 
         imp_fig = {
             "data": [

@@ -65,7 +65,10 @@ def design_filter(family, ftype, order, domain, c1, c2):
 
 
 def compute_responses(zeros, poles, gain, domain):
-    """Computes Frequency (Bode) and Impulse responses."""
+    """Computes Frequency (Bode) and Impulse responses.
+       For Impulse Response, uses Partial Fraction Expansion to support
+       stable non-causal responses (two-sided).
+    """
     analog = (domain == "analog")
 
     # 1. Frequency Response
@@ -86,32 +89,80 @@ def compute_responses(zeros, poles, gain, domain):
     mag_db = 20 * np.log10(np.abs(h) + 1e-15)
     phase_deg = np.rad2deg(np.unwrap(np.angle(h)))
 
-    # 2. Impulse Response
+    # 2. Impulse Response (Two-Sided / Stable)
+    t, y = None, None
+    b, a = signal.zpk2tf(zeros, poles, gain)
+
     if analog:
         # Check properness: if Zeros > Poles, impulse is undefined (Dirac deltas)
         if len(zeros) > len(poles):
-            # SIGNAL ERROR: Return None to signal the UI
-            t, y = None, None
-        else:
-            # Check stability for auto-ranging time vector
-            real_poles = poles.real
-            if len(real_poles) > 0 and np.max(real_poles) < 0:
-                min_decay = np.min(np.abs(real_poles))
-                t_max = 5.0 / min_decay if min_decay > 0 else 10.0
-            else:
-                t_max = 10.0
+            return w, mag_db, phase_deg, None, None
+        
+        try:
+            r, p, k = signal.residue(b, a)
+        except Exception:
+            return w, mag_db, phase_deg, None, None
 
-            sys = signal.lti(zeros, poles, gain)
-            T_vals = np.linspace(0, t_max, 500)
-            t, y = signal.impulse(sys, T=T_vals)
-            y = np.real(y)  # Fix for complex artifacts
-    else:
-        dim = 50
-        u = np.zeros(dim);
-        u[0] = 1
-        b, a = signal.zpk2tf(zeros, poles, gain)
-        y = signal.lfilter(b, a, u)
+        # Determine time range
+        real_p = np.real(p)
+        if len(real_p) > 0:
+             # Use the slowest decay (closest to axis) for range
+             min_decay = np.min(np.abs(real_p))
+             min_decay = max(min_decay, 0.1)
+             t_max = 5.0 / min_decay
+        else:
+             t_max = 10.0
+        
+        # Create symmetric time vector to show both sides
+        t = np.linspace(-t_max, t_max, 1000)
+        y = np.zeros_like(t, dtype=np.complex128)
+
+        # 1. Add Residue terms
+        for ri, pi in zip(r, p):
+            if np.real(pi) > 0:
+                # Anticausal (Right Half Plane): -r * e^(pt) * u(-t)
+                mask = t < 0
+                y[mask] -= ri * np.exp(pi * t[mask])
+            else:
+                # Causal (Left Half Plane): r * e^(pt) * u(t)
+                mask = t >= 0
+                y[mask] += ri * np.exp(pi * t[mask])
+        
+        # Add direct term k if present (though usually delta function)
+        # For visualization, we skip drawing the delta arrow for now.
         y = np.real(y)
-        t = np.arange(dim)
+
+    else:
+        # Digital
+        try:
+            r, p, k = signal.residuez(b, a)
+        except Exception:
+             return w, mag_db, phase_deg, None, None
+        
+        # Digital Time Vector: -50 to +50
+        dim = 50
+        t = np.arange(-dim, dim + 1)
+        y = np.zeros_like(t, dtype=np.complex128)
+
+        # 1. Direct terms (k)
+        for i, val in enumerate(k):
+            # delta at n=i. t vector starts at -dim.
+            # Index in 'y' corresponding to n=i is i + dim
+            idx = i + dim
+            if 0 <= idx < len(y):
+                y[idx] += val
+        
+        # 2. Residue terms
+        for ri, pi in zip(r, p):
+            if abs(pi) > 1.0000001: 
+                # Anticausal: -r * p^n * u[-n-1]
+                mask = t <= -1
+                y[mask] -= ri * (pi ** t[mask])
+            else:
+                # Causal: r * p^n * u[n]
+                mask = t >= 0
+                y[mask] += ri * (pi ** t[mask])
+
+        y = np.real(y)
 
     return w, mag_db, phase_deg, t, y
