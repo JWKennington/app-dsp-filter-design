@@ -3,7 +3,8 @@ from scipy import signal
 
 
 def sanitize_json(obj):
-    """Recursively convert numpy types to standard python types for JSON serialization."""
+    """Recursively convert numpy types to standard python types for JSON
+    serialization."""
     if isinstance(obj, dict):
         return {k: sanitize_json(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -34,12 +35,10 @@ def design_filter(family, ftype, order, domain, c1, c2):
     else:
         Wn = c1
 
-    # Safety clamps (Using np.clip/maximum handles both scalar and list inputs automatically)
+    # Safety clamps
     if not analog:
-        # Digital freq must be 0 < Wn < 1 (Nyquist)
         Wn = np.clip(Wn, 1e-6, 0.999)
     else:
-        # Analog freq must be > 0
         Wn = np.maximum(Wn, 1e-6)
 
     try:
@@ -89,31 +88,29 @@ def compute_responses(zeros, poles, gain, domain):
 
     # 2. Impulse Response
     if analog:
-        # Check stability for auto-ranging time vector
-        real_poles = poles.real
-        if len(real_poles) > 0 and np.max(real_poles) < 0:
-            # Stable: plot until decay (5 time constants of the slowest pole)
-            min_decay = np.min(np.abs(real_poles))
-            t_max = 5.0 / min_decay if min_decay > 0 else 10.0
+        # Check properness: if Zeros > Poles, impulse is undefined (Dirac deltas)
+        if len(zeros) > len(poles):
+            # SIGNAL ERROR: Return None to signal the UI
+            t, y = None, None
         else:
-            t_max = 10.0
+            # Check stability for auto-ranging time vector
+            real_poles = poles.real
+            if len(real_poles) > 0 and np.max(real_poles) < 0:
+                min_decay = np.min(np.abs(real_poles))
+                t_max = 5.0 / min_decay if min_decay > 0 else 10.0
+            else:
+                t_max = 10.0
 
-        sys = signal.lti(zeros, poles, gain)
-        # Use simple linspace for T to avoid issues with signal.impulse auto-ranging
-        T_vals = np.linspace(0, t_max, 500)
-        t, y = signal.impulse(sys, T=T_vals)
-
-        # FIX: Ensure output is Real (removes 1e-12j noise and handles complex filters)
-        y = np.real(y)
-
+            sys = signal.lti(zeros, poles, gain)
+            T_vals = np.linspace(0, t_max, 500)
+            t, y = signal.impulse(sys, T=T_vals)
+            y = np.real(y)  # Fix for complex artifacts
     else:
         dim = 50
         u = np.zeros(dim);
         u[0] = 1
         b, a = signal.zpk2tf(zeros, poles, gain)
         y = signal.lfilter(b, a, u)
-
-        # FIX: Ensure output is Real
         y = np.real(y)
         t = np.arange(dim)
 
