@@ -38,7 +38,7 @@ header = dbc.Navbar(
             html.A(
                 dbc.Row(
                     [
-                        dbc.Col(html.Img(src="https://www.ligo.caltech.edu/system/logos/1/original/LIGO_Logo_Black.png?1438209866", height="40px")),
+                        dbc.Col(html.Img(src="/assets/lsc-logo-small.png", height="40px")),
                         dbc.Col(dbc.NavbarBrand("DSP Filter Design Explorer", className="ms-2")),
                     ],
                     align="center",
@@ -556,7 +556,7 @@ def update_pz_map(data, domain, roc_mode):
 
 
 def main():
-    debug_mode = os.environ.get("DASH_DEBUG", "True") == "True"
+    debug_mode = os.environ.get("DASH_DEBUG", "False") == "True"
     app.run(debug=debug_mode, port=8050)
 
 
