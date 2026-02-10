@@ -74,7 +74,7 @@ control_panel = dbc.Card([
 
         html.Hr(),
 
-        # New ROC Toggle
+        # ROC Toggle
         html.Label("Highlight Region (Stability)"),
         dbc.RadioItems(
             id="roc-radio",
@@ -88,17 +88,21 @@ control_panel = dbc.Card([
             className="mb-3"
         ),
 
-        # Updated Buttons
-        dbc.ButtonGroup([
-            dbc.Button("Add P", id="btn-add-p", outline=True, color="danger",
-                       size="sm"),
-            dbc.Button("Rem P", id="btn-rem-p", outline=True, color="danger",
-                       size="sm"),
-            dbc.Button("Add Z", id="btn-add-z", outline=True, color="primary",
-                       size="sm"),
-            dbc.Button("Rem Z", id="btn-rem-z", outline=True, color="primary",
-                       size="sm"),
-        ], className="w-100 mb-2"),
+        # Buttons
+        dbc.Row([
+            dbc.Col(dbc.Button("Add Pole", id="btn-add-p", outline=True, color="danger",
+                               size="sm", className="w-100"), width=6),
+            dbc.Col(dbc.Button("Rem Pole", id="btn-rem-p", outline=True, color="danger",
+                               size="sm", className="w-100"), width=6),
+        ], className="mb-2"),
+        dbc.Row([
+            dbc.Col(
+                dbc.Button("Add Zero", id="btn-add-z", outline=True, color="primary",
+                           size="sm", className="w-100"), width=6),
+            dbc.Col(
+                dbc.Button("Rem Zero", id="btn-rem-z", outline=True, color="primary",
+                           size="sm", className="w-100"), width=6),
+        ], className="mb-2"),
 
         dbc.Button("Reset All", id="btn-reset", outline=True, color="secondary",
                    size="sm", className="w-100"),
@@ -131,28 +135,51 @@ app.layout = dbc.Container([
 
 
 # --- Callbacks ---
+
+# 1. Update Input Defaults based on Domain
 @app.callback(
+    Output("cut1-in", "value"),
     Output("cut2-in", "disabled"),
-    Input("type-dd", "value")
+    Input("domain-radio", "value"),
+    Input("type-dd", "value"),
+    State("cut1-in", "value")
 )
-def toggle_cutoff2(ftype):
-    return ftype not in ["bandpass", "bandstop"]
+def update_defaults(domain, ftype, current_c1):
+    ctx = callback_context
+    trigger = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else "init"
+
+    # Enable/Disable 2nd cutoff
+    c2_disabled = ftype not in ["bandpass", "bandstop"]
+
+    # Smart Default for Cutoff 1
+    new_c1 = current_c1
+    if trigger == "domain-radio":
+        if domain == "digital":
+            # Switch to normalized freq (0.25 is a nice visual default)
+            new_c1 = 0.25
+        else:
+            # Switch to rad/s
+            new_c1 = 1.0
+
+    return new_c1, c2_disabled
 
 
+# 2. Main Logic: Update Filter State
 @app.callback(
     Output("filter-state", "data"),
     Input("family-dd", "value"), Input("type-dd", "value"),
-    Input("order-in", "value"), Input("domain-radio", "value"),
+    Input("order-in", "value"),
     Input("cut1-in", "value"), Input("cut2-in", "value"),
     Input("btn-add-p", "n_clicks"), Input("btn-add-z", "n_clicks"),
-    Input("btn-rem-p", "n_clicks"), Input("btn-rem-z", "n_clicks"),  # New Inputs
+    Input("btn-rem-p", "n_clicks"), Input("btn-rem-z", "n_clicks"),
     Input("btn-reset", "n_clicks"),
     Input("pz-plot", "relayoutData"),
+    State("domain-radio", "value"),
     State("filter-state", "data")
 )
-def update_filter_state(fam, ftype, order, domain, c1, c2,
+def update_filter_state(fam, ftype, order, c1, c2,
                         add_p, add_z, rem_p, rem_z, btn_rst,
-                        relayout, current_data):
+                        relayout, domain, current_data):
     ctx = callback_context
     trigger = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else "init"
 
@@ -160,9 +187,10 @@ def update_filter_state(fam, ftype, order, domain, c1, c2,
     zeros = [complex(z[0], z[1]) for z in current_data.get("zeros", [])]
     gain = current_data.get("gain", 1.0)
 
-    # 1. Parameter Change -> Re-design
-    design_triggers = ["family-dd", "type-dd", "order-in", "domain-radio", "cut1-in",
-                       "cut2-in", "btn-reset"]
+    # Design Triggers
+    design_triggers = ["family-dd", "type-dd", "order-in", "cut1-in", "cut2-in",
+                       "btn-reset"]
+
     if trigger in design_triggers or trigger == "init":
         if fam != "Custom":
             z, p, k = dsp.design_filter(fam, ftype, order, domain, c1, c2)
@@ -170,19 +198,19 @@ def update_filter_state(fam, ftype, order, domain, c1, c2,
         elif trigger == "btn-reset":
             zeros, poles, gain = [], [], 1.0
 
-    # 2. Add Pole/Zero (Manual)
+    # Manual Add
     if trigger == "btn-add-p":
         poles.append(complex(-0.5, 0.5) if domain == "analog" else complex(0.5, 0.5))
     if trigger == "btn-add-z":
         zeros.append(complex(0, 0.5) if domain == "analog" else complex(0, 0.5))
 
-    # 3. Remove Pole/Zero (Manual) - Pops the last one
+    # Manual Remove
     if trigger == "btn-rem-p" and poles:
         poles.pop()
     if trigger == "btn-rem-z" and zeros:
         zeros.pop()
 
-    # 4. Dragging on Plot (Relayout)
+    # Dragging
     if trigger == "pz-plot" and relayout:
         offset = 1 if domain == "digital" else 0
         n_zeros = len(zeros)
@@ -229,6 +257,7 @@ def update_filter_state(fam, ftype, order, domain, c1, c2,
     })
 
 
+# 3. Update Plots
 @app.callback(
     Output("pz-plot", "figure"), Output("bode-plot", "figure"),
     Output("impulse-plot", "figure"),
@@ -263,7 +292,6 @@ def update_plots(data, domain, roc_mode):
     shapes = []
 
     # 1. Background Regions (Stability/Causality)
-    # Layer must be 'below' to not obscure poles/zeros
     if roc_mode != "off":
         if domain == "analog":
             if roc_mode == "causal":
@@ -289,29 +317,28 @@ def update_plots(data, domain, roc_mode):
                     "layer": "below", "editable": False
                 })
             else:
-                # Red Outside Unit Circle (Approximated by huge annulus using SVG path)
-                # Outer box 20x20, Inner hole radius 1
-                path_str = "M -10 -10 L 10 -10 L 10 10 L -10 10 Z M 1 0 A 1 1 0 0 0 -1 0 A 1 1 0 0 0 1 0 Z"
+                # Red Outside Unit Circle (Donut)
+                # Outer Box (CCW) + Inner Circle (CW) = Hole
+                path_str = "M -100 -100 L 100 -100 L 100 100 L -100 100 Z M 1 0 A 1 1 0 0 1 -1 0 A 1 1 0 0 1 1 0 Z"
                 shapes.append({
                     "type": "path", "path": path_str,
                     "fillcolor": "rgba(255, 0, 0, 0.1)", "line": {"width": 0},
                     "layer": "below", "editable": False
                 })
 
-    # 2. Reference Lines (Unit Circle or Axis)
+    # 2. Reference Lines
     if domain == "digital":
         shapes.append({
             "type": "circle", "x0": -1, "x1": 1, "y0": -1, "y1": 1,
             "line": {"dash": "dot", "color": "gray"}, "editable": False
         })
     else:
-        # Highlight imaginary axis for Analog
         shapes.append({
             "type": "line", "x0": 0, "x1": 0, "y0": -100, "y1": 100,
             "line": {"color": "gray", "width": 1}, "editable": False
         })
 
-    # 3. Zeros (Blue Circles)
+    # 3. Zeros (Blue)
     radius = 0.05
     for z in zeros:
         shapes.append({
@@ -322,7 +349,7 @@ def update_plots(data, domain, roc_mode):
             "fillcolor": "rgba(0, 0, 255, 0.1)"
         })
 
-    # 4. Poles (Red Circles)
+    # 4. Poles (Red)
     for p in poles:
         shapes.append({
             "type": "circle",
@@ -333,10 +360,7 @@ def update_plots(data, domain, roc_mode):
         })
 
     pz_fig = {
-        "data": [
-            # Dummy trace to enforce axis range
-            {"x": [-2, 2], "y": [-2, 2], "mode": "markers", "opacity": 0}
-        ],
+        "data": [{"x": [-2, 2], "y": [-2, 2], "mode": "markers", "opacity": 0}],
         "layout": {
             "title": "Pole-Zero Map",
             "xaxis": {"range": [-2, 2], "title": "Real", "zeroline": False},
@@ -355,12 +379,10 @@ def update_plots(data, domain, roc_mode):
             "layout": {
                 "title": "Impulse Response",
                 "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
-                "xaxis": {"visible": False},
-                "yaxis": {"visible": False},
+                "xaxis": {"visible": False}, "yaxis": {"visible": False},
                 "annotations": [{
                     "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot compute impulse.",
-                    "xref": "paper", "yref": "paper",
-                    "showarrow": False,
+                    "xref": "paper", "yref": "paper", "showarrow": False,
                     "font": {"size": 14, "color": "red"}
                 }]
             }
