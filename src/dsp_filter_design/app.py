@@ -6,8 +6,25 @@ import dsp_filter_design.dsp_utils as dsp
 import numpy as np
 
 # --- Constants ---
+# --- Constants ---
 LIGO_PURPLE = "#593196"
-CONFIG_PLOT = {"displayModeBar": False, "responsive": True, "editable": True}
+CONFIG_PLOT = {
+    "displayModeBar": False,
+    "editable": True,  # Must be True for dragging shapes
+    "edits": {
+        "annotationPosition": False,
+        "annotationTail": False,
+        "annotationText": False,
+        "axisTitleText": False,
+        "colorbarPosition": False,
+        "colorbarTitleText": False,
+        "legendPosition": False,
+        "legendText": False,
+        "shapePosition": True,  # Allow dragging!
+        "titleText": False      # Prevent title editing
+    },
+    "modeBarButtonsToRemove": ["toImage", "sendDataToCloud", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d"]
+}
 
 # --- App Initialization ---
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
@@ -15,6 +32,49 @@ app.title = "DSP Explorer"
 server = app.server
 
 # --- Layout Components ---
+header = dbc.Navbar(
+    dbc.Container(
+        [
+            html.A(
+                dbc.Row(
+                    [
+                        dbc.Col(html.Img(src="https://www.ligo.caltech.edu/system/logos/1/original/LIGO_Logo_Black.png?1438209866", height="40px")),
+                        dbc.Col(dbc.NavbarBrand("DSP Filter Design Explorer", className="ms-2")),
+                    ],
+                    align="center",
+                    className="g-0",
+                ),
+                href="#",
+                style={"textDecoration": "none"},
+            ),
+        ]
+    ),
+    color=LIGO_PURPLE,
+    dark=True,
+    className="mb-4",
+)
+
+explainer = dbc.Accordion(
+    [
+        dbc.AccordionItem(
+            [
+                html.P("This application serves as a pedagogical tool for exploring digital filter design principles."),
+                html.P("Key Features:"),
+                html.Ul([
+                    html.Li("Visualize poles and zeros in both Analog (s-plane) and Digital (z-plane) domains."),
+                    html.Li("Design common filters (Butterworth, Chebyshev, etc.) and observe their frequency and impulse responses."),
+                    html.Li("Understand stability and causality regions (ROC) with interactive highlighting."),
+                    html.Li("Compare 'Causal' vs 'Anti-Causal' system behaviors.")
+                ]),
+                html.P("Use the control panel on the left to configure your filter, and drag poles/zeros on the chart to fine-tune your design."),
+            ],
+            title="About this App (How to Use)",
+        ),
+    ],
+    start_collapsed=True,
+    className="mb-4",
+)
+
 control_panel = dbc.Card([
     dbc.CardHeader("Filter Design Parameters"),
     dbc.CardBody([
@@ -112,24 +172,45 @@ control_panel = dbc.Card([
 
 plots_col = html.Div([
     dbc.Row([
-        dbc.Col(dcc.Graph(id="pz-plot", config=CONFIG_PLOT, style={"height": "400px"}),
-                md=6),
-        dbc.Col(dcc.Graph(id="bode-plot", config={"displayModeBar": False},
-                          style={"height": "400px"}), md=6),
-    ]),
+        dbc.Col(dbc.Card([
+            dbc.CardHeader("Pole-Zero Map", className="p-1 text-center"),
+            dbc.CardBody(dcc.Graph(id="pz-plot", config=CONFIG_PLOT), className="p-0")
+        ]), md=6),
+        dbc.Col(dbc.Card([
+            dbc.CardHeader("Bode Plot", className="p-1 text-center"),
+            dbc.CardBody(dcc.Graph(id="bode-plot", config=CONFIG_PLOT), className="p-0")
+        ]), md=6),
+    ], className="mb-2 g-2"),
     dbc.Row([
-        dbc.Col(dcc.Graph(id="impulse-plot", config={"displayModeBar": False},
-                          style={"height": "250px"}), width=12)
-    ])
+        dbc.Col(dbc.Card([
+            dbc.CardHeader("Impulse Response", className="p-1 text-center"),
+            dbc.CardBody(dcc.Graph(id="impulse-plot", config=CONFIG_PLOT), className="p-0")
+        ]), width=12)
+    ], className="g-2")
 ])
 
+
+
+
+footer = html.Footer(
+    dbc.Container(
+        [
+            html.Hr(),
+            html.P("© 2026 James Kennington. All Rights Reserved.", className="text-center text-muted"),
+        ],
+        fluid=True,
+    ),
+    className="mt-5"
+)
+
 app.layout = dbc.Container([
-    dbc.NavbarSimple(brand="Digital Signal Processing Explorer", brand_href="#",
-                     color="dark", dark=True, className="mb-4"),
+    header,
+    explainer,
     dbc.Row([
         dbc.Col(control_panel, md=3),
         dbc.Col(plots_col, md=9)
     ]),
+    footer,
     dcc.Store(id="filter-state", data={"poles": [], "zeros": [], "gain": 1.0})
 ], fluid=True, className="p-0")
 
@@ -173,11 +254,12 @@ def update_defaults(domain, ftype, current_c1):
     Input("btn-reset", "n_clicks"),
     Input("pz-plot", "relayoutData"),
     State("domain-radio", "value"),
+    State("roc-radio", "value"), # Added for shape offset calculation
     State("filter-state", "data")
 )
 def update_filter_state(fam, ftype, order, c1, c2,
                         add_p, add_z, rem_p, rem_z, btn_rst,
-                        relayout, domain, current_data):
+                        relayout, domain, roc_mode, current_data):
     ctx = callback_context
     trigger = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else "init"
 
@@ -209,7 +291,12 @@ def update_filter_state(fam, ftype, order, c1, c2,
 
     # Dragging
     if trigger == "pz-plot" and relayout:
-        offset = 1 if domain == "digital" else 0
+        # Calculate Offset for Background Shapes
+        # 1. Stability Region (if enabled) -> 1 shape
+        # 2. Reference Line -> 1 shape
+        # offset = (1 if roc_mode != "off" else 0) + 1
+        offset = 1 + (1 if roc_mode != "off" else 0)
+        
         n_zeros = len(zeros)
         for key, val in relayout.items():
             if "shapes[" in key:
@@ -273,11 +360,14 @@ def update_response_plots(data, domain):
         ],
         "layout": {
             "title": "Bode Plot",
+            "height": 300,
+            "font": {"color": "black"},
             "xaxis": {"type": "log" if domain == "analog" else "linear",
-                      "title": "Frequency"},
-            "yaxis": {"title": "Magnitude (dB)"},
-            "yaxis2": {"title": "Phase (deg)", "overlaying": "y", "side": "right"},
-            "margin": {"l": 50, "r": 50, "t": 40, "b": 40}
+                      "title": {"text": "Frequency"}, "automargin": True},
+            "yaxis": {"title": {"text": "Magnitude (dB)"}, "automargin": True},
+            "yaxis2": {"title": {"text": "Phase (deg)"}, "overlaying": "y", "side": "right", "automargin": True},
+            "margin": {"l": 50, "r": 50, "t": 30, "b": 30},
+            "legend": {"x": 1, "y": 1}
         }
     }
 
@@ -287,6 +377,7 @@ def update_response_plots(data, domain):
             "data": [],
             "layout": {
                 "title": "Impulse Response",
+                "height": 250,
                 "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
                 "xaxis": {"visible": False}, "yaxis": {"visible": False},
                 "annotations": [{
@@ -302,8 +393,14 @@ def update_response_plots(data, domain):
             "data": [
                 {"x": t, "y": y, "type": "bar" if domain == "digital" else "scatter",
                  "marker": {"color": "#333"}}],
-            "layout": {"title": "Impulse Response",
-                       "margin": {"l": 40, "r": 20, "t": 40, "b": 40}}
+            "layout": {
+                "title": "Impulse Response",
+                "height": 250,
+                "font": {"color": "black"},
+                "margin": {"l": 60, "r": 20, "t": 30, "b": 40},
+                "xaxis": {"title": {"text": "Time (s)" if domain == "analog" else "Samples"}, "automargin": True},
+                "yaxis": {"title": {"text": "Amplitude"}, "automargin": True},
+            }
         }
 
     return bode_fig, imp_fig
@@ -423,11 +520,13 @@ def update_pz_map(data, domain, roc_mode):
         "data": [{"x": [-2, 2], "y": [-2, 2], "mode": "markers", "opacity": 0}],
         "layout": {
             "title": "Pole-Zero Map",
-            "xaxis": {"range": [-2, 2], "title": "Real", "zeroline": False},
+            "height": 300,
+            "font": {"color": "black"},
+            "xaxis": {"range": [-2, 2], "title": {"text": "Real"}, "zeroline": False},
             "yaxis": {"range": [-2, 2], "scaleanchor": "x", "scaleratio": 1,
-                      "title": "Imaginary", "zeroline": False},
+                      "title": {"text": "Imaginary"}, "zeroline": False},
             "shapes": shapes,
-            "margin": {"l": 40, "r": 40, "t": 40, "b": 40},
+            "margin": {"l": 40, "r": 40, "t": 30, "b": 30},
             "dragmode": "select"
         }
     }
@@ -437,7 +536,7 @@ def update_pz_map(data, domain, roc_mode):
 
 def main():
     debug_mode = os.environ.get("DASH_DEBUG", "True") == "True"
-    app.run(debug=debug_mode, port=8051)
+    app.run(debug=debug_mode, port=8050)
 
 
 if __name__ == "__main__":
