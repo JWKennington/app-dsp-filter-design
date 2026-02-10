@@ -1,11 +1,13 @@
-# DSP Filter Design Explorer
+# Digital Signal Processing Explorer
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.12-blue.svg)
-![Dash](https://img.shields.io/badge/dash-2.14+-blue.svg)
+[![Launch App](https://img.shields.io/badge/Launch-App-success?style=for-the-badge&logo=rocket)](https://dsp-explorer.onrender.com)
+An interactive tool for exploring Analog and Digital filters, poles, zeros, and stability.
 
-An interactive, pedagogical tool for exploring **Digital** and **Analog** filter design. Visualize how Pole-Zero placement affects Frequency Response (Bode) and Impulse Response in real-time.
+## For Students
+**[Click here to launch the app](https://dsp-explorer.onrender.com)**. No account or setup required.
 
+## For Developers
+If you want to host your own copy or modify the code:
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/JWKennington/app-dsp-filter-design)
 
 ---
