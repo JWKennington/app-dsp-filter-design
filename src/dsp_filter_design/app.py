@@ -389,6 +389,10 @@ def update_response_plots(data, domain):
             }
         }
     else:
+        # Determine range for better visualization
+        t_max = np.max(t) if len(t) > 0 else 1.0
+        x_range = [-0.05 * t_max, t_max * 1.05]
+
         imp_fig = {
             "data": [
                 {"x": t, "y": y, "type": "bar" if domain == "digital" else "scatter",
@@ -398,8 +402,21 @@ def update_response_plots(data, domain):
                 "height": 250,
                 "font": {"color": "black"},
                 "margin": {"l": 60, "r": 20, "t": 30, "b": 40},
-                "xaxis": {"title": {"text": "Time (s)" if domain == "analog" else "Samples"}, "automargin": True},
+                "xaxis": {
+                    "title": {"text": "Time (s)" if domain == "analog" else "Samples"},
+                    "range": x_range,
+                    "automargin": True
+                },
                 "yaxis": {"title": {"text": "Amplitude"}, "automargin": True},
+                "shapes": [
+                    {
+                        "type": "line",
+                        "x0": 0, "x1": 0,
+                        "y0": 0, "y1": 1,
+                        "xref": "x", "yref": "paper",
+                        "line": {"color": "gray", "width": 1.5, "dash": "dash"}
+                    }
+                ]
             }
         }
 
