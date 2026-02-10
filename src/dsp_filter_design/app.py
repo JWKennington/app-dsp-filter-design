@@ -251,14 +251,13 @@ def update_filter_state(fam, ftype, order, c1, c2,
     })
 
 
-# 3. Update Plots
+# 3a. Update Response Plots (Bode + Impulse)
+# Depends on: Filter State, Domain
 @app.callback(
-    Output("pz-plot", "figure"), Output("bode-plot", "figure"),
-    Output("impulse-plot", "figure"),
-    Input("filter-state", "data"), Input("domain-radio", "value"),
-    Input("roc-radio", "value")
+    Output("bode-plot", "figure"), Output("impulse-plot", "figure"),
+    Input("filter-state", "data"), Input("domain-radio", "value")
 )
-def update_plots(data, domain, roc_mode):
+def update_response_plots(data, domain):
     poles = dsp.to_complex_array(data["poles"])
     zeros = dsp.to_complex_array(data["zeros"])
     gain = data["gain"]
@@ -282,7 +281,45 @@ def update_plots(data, domain, roc_mode):
         }
     }
 
-    # -- P/Z Map --
+    # -- Impulse --
+    if y is None:
+        imp_fig = {
+            "data": [],
+            "layout": {
+                "title": "Impulse Response",
+                "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
+                "xaxis": {"visible": False}, "yaxis": {"visible": False},
+                "annotations": [{
+                    "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot "
+                            "compute impulse.",
+                    "xref": "paper", "yref": "paper", "showarrow": False,
+                    "font": {"size": 14, "color": "red"}
+                }]
+            }
+        }
+    else:
+        imp_fig = {
+            "data": [
+                {"x": t, "y": y, "type": "bar" if domain == "digital" else "scatter",
+                 "marker": {"color": "#333"}}],
+            "layout": {"title": "Impulse Response",
+                       "margin": {"l": 40, "r": 20, "t": 40, "b": 40}}
+        }
+
+    return bode_fig, imp_fig
+
+
+# 3b. Update P/Z Map
+# Depends on: Filter State, Domain, ROC Toggle
+@app.callback(
+    Output("pz-plot", "figure"),
+    Input("filter-state", "data"), Input("domain-radio", "value"),
+    Input("roc-radio", "value")
+)
+def update_pz_map(data, domain, roc_mode):
+    poles = dsp.to_complex_array(data["poles"])
+    zeros = dsp.to_complex_array(data["zeros"])
+    
     shapes = []
 
     # 1. Background Regions (Stability/Causality)
@@ -395,37 +432,12 @@ def update_plots(data, domain, roc_mode):
         }
     }
 
-    # -- Impulse --
-    if y is None:
-        imp_fig = {
-            "data": [],
-            "layout": {
-                "title": "Impulse Response",
-                "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
-                "xaxis": {"visible": False}, "yaxis": {"visible": False},
-                "annotations": [{
-                    "text": "IMPROPER TRANSFER FUNCTION<br>(Zeros > Poles)<br>Cannot "
-                            "compute impulse.",
-                    "xref": "paper", "yref": "paper", "showarrow": False,
-                    "font": {"size": 14, "color": "red"}
-                }]
-            }
-        }
-    else:
-        imp_fig = {
-            "data": [
-                {"x": t, "y": y, "type": "bar" if domain == "digital" else "scatter",
-                 "marker": {"color": "#333"}}],
-            "layout": {"title": "Impulse Response",
-                       "margin": {"l": 40, "r": 20, "t": 40, "b": 40}}
-        }
-
-    return pz_fig, bode_fig, imp_fig
+    return pz_fig
 
 
 def main():
     debug_mode = os.environ.get("DASH_DEBUG", "True") == "True"
-    app.run(debug=debug_mode)
+    app.run(debug=debug_mode, port=8051)
 
 
 if __name__ == "__main__":
